@@ -25,8 +25,8 @@ var zyshdata2=[{'_Slot1':'6 (20 MHz)','_Slot2':'44 (80 MHz)'}];
 var errno2=0;
 """
 
-def response(text, status=200):
-    return types.SimpleNamespace(text=text,status_code=status)
+def response(text, status=200, headers=None):
+    return types.SimpleNamespace(text=text,status_code=status,headers=headers or {})
 
 class APTests(unittest.TestCase):
     def test_radio_mapping(self):
@@ -42,6 +42,13 @@ class APTests(unittest.TestCase):
             m.parse_response("var zyshdata0=__import__('os').system('false');")
     def test_login_page_is_not_data(self):
         with self.assertRaises(api.ZyxelConnectionError):m.parse_response('<html>Login</html>')
+    def test_nwa50be_accepted(self):
+        data=m.normalize_status(m.parse_response(DATA.replace("'NWA50AX'","'NWA50BE'")))
+        self.assertEqual(data['device']['model'],'NWA50BE')
+        self.assertEqual(data['radios']['radio_5g']['TxPower'],23)
+    def test_6ghz_slot(self):
+        data=m.normalize_status(m.parse_response(DATA.replace("'_Slot2':'44 (80 MHz)'","'_Slot2':'44 (80 MHz)','_Slot3':'37 (320 MHz)'")))
+        self.assertEqual(data['radios']['radio_6g']['Channel'],'37 (320 MHz)')
     def test_wrong_model(self):
         with self.assertRaises(api.ZyxelConnectionError):m.normalize_status(m.parse_response(DATA.replace('NWA50AX','OTHER')))
     def test_csrf(self):
@@ -72,6 +79,19 @@ class APTests(unittest.TestCase):
             return response(DATA)
         c._request=Mock(side_effect=request)
         self.assertEqual(c.fetch_status()['device']['model'],'NWA50AX')
+        c.close()
+    def test_https_redirect(self):
+        c=m.NWA50AXClient('http://ap.example','admin','secret','ab'*32)
+        c._follow_https_redirect('https://ap.example/')
+        self.assertEqual(c.host,'https://ap.example')
+        for bad in ['https://evil.example/','http://ap.example/','https://ap.example/x']:
+            c.host='http://ap.example'
+            with self.assertRaises(api.ZyxelConnectionError):c._follow_https_redirect(bad)
+        c.close()
+    def test_https_redirect_without_pin_asks_for_https(self):
+        c=m.NWA50AXClient('http://ap.example','admin','secret')
+        with self.assertRaises(api.ZyxelConnectionError):c._follow_https_redirect('https://ap.example/')
+        self.assertEqual(c.host,'https://ap.example')
         c.close()
     def test_wrong_credentials(self):
         c=m.NWA50AXClient('http://ap.example','admin','secret')
